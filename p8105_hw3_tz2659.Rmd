@@ -1,0 +1,351 @@
+---
+title: "p8105_hw3_tz2659"
+author: "Tianci Zhu"
+date: "2024-10-14"
+output: html_document
+---
+
+## Problem 1
+```{r}
+file_path <- "E:/Tracy/fall 2024/P8105 Data Science/p8105_hw3_tz2659/"
+options(scipen=999)
+```
+
+```{r}
+library(tidyverse)
+library(ggridges)
+library(patchwork)
+library(p8105.datasets)
+```
+
+```{r}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+
+theme_set(theme_light() + theme(legend.position = "bottom"))
+
+# Set custom color scales for continuous and discrete variables
+scale_color_viridis_d <- scale_color_viridis_d
+scale_fill_viridis_d <- scale_fill_viridis_d
+```
+
+```{r}
+data("ny_noaa")
+```
+This dataset contains `r nrow(ny_noaa)` rows and `r ncol(ny_noaa)` columns. Variables include weather station id, date of observation,  (tenths of mm), snowfall (mm), snow depth (mm), and min and max temperature (tenths of degrees C).
+
+```{r}
+ny_noaa %>% 
+  count(snow) %>%
+  arrange(desc(n))
+
+ny_noaa = 
+  ny_noaa %>% 
+  separate(date, into = c("year", "month", "day"), convert = TRUE) %>% 
+  mutate(
+    tmax = as.numeric(tmax),
+    tmin = as.numeric(tmin))
+```
+
+Below is a two-panel plot showing the average max temperature in January and in July in each station across years. As expected, the mean temperature in January is much lower than the mean temperature in July for all stations and across all years. All stations appear to follow similar trends of temperature peaks and valleys within a month across the years, i.e. when one station has a high monthly mean temperature for a given year, most other stations also have a high monthly mean temperature for that year. We do see one uncharacteristically cold station in July of 1987 or 1988, as well as a few other less drastic outliers.
+
+```{r}
+ny_noaa %>% 
+  group_by(id, year, month) %>% 
+  filter(month %in% c(1, 7)) %>% 
+  summarize(mean_tmax = mean(tmax, na.rm = TRUE, color = id)) %>% 
+  ggplot(aes(x = year, y = mean_tmax, group = id)) + geom_point() + geom_path() +
+  facet_grid(~month) +
+  labs(title = "Mean monthly temperature for each station across years for January and July")
+```
+
+Below we show a two-panel plot including (i) a hex plot of `tmax` vs `tmin` for the full dataset; and (ii) a ridge plot showing the distribution of snowfall values (in mm) greater than 0 and less than 100 separately by year. 
+
+From the hex plot we see that while there is some variability, the majority of the data cluster tightly in the center of the distribution. In relatively rare cases, it seems that `tmax` is less than `tmin`, which raises questions about data recording and quality.
+
+From the ridge plot, we see a multimodal density of snowfall within a given year. Most stations see between 0 and  35 mm of snow in a year. Then there is a another group of stations that see about 45 mm of snow, and another group that sees nearly 80 mm. It is likely this multimodality stems from the conversion of measurements in one system (fractions of an inch) to another (using the metric system), which was also noted in the table of common values. 
+
+```{r}
+hex = 
+  ny_noaa %>% 
+  ggplot(aes(x = tmin, y = tmax)) + 
+  geom_hex()
+
+ridge = 
+  ny_noaa %>% 
+  filter(snow < 100, snow > 0) %>%
+  ggplot(aes(x = snow, y = as.factor(year))) + 
+  geom_density_ridges()
+
+hex + ridge
+```
+
+
+## Problem 2
+```{r}
+accel_data <- read_csv("nhanes_accel.csv")
+covar_data <- read_csv("nhanes_covar.csv")
+```
+### Load, tidy, merge, and otherwise organize the data sets.
+```{r}
+covar <- read_csv("nhanes_covar.csv", skip = 4) |>
+  janitor::clean_names() |>
+  mutate(
+    sex = as.factor(sex),
+    education = factor(education, levels = c(1, 2, 3),
+                       labels = c("Less than high school", 
+                                  "High school equivalent", 
+                                  "More than high school"))
+  ) |> 
+  drop_na()
+
+# Clean accelerometer data and pivot to long format
+accel <- accel_data |>
+  janitor::clean_names() |>
+  pivot_longer(
+    cols = starts_with("min"), 
+    names_to = "minute", 
+    values_to = "mims"
+  ) |>
+  mutate(minute = as.numeric(str_remove(minute, "min")))
+
+# Merge datasets and filter for age >= 21
+merge_df <- full_join(accel, covar, by = "seqn") |>
+  filter(age >= 21)
+```
+
+### Produce a reader-friendly table for the number of men and women in each education category, and create a visualization of the age distributions for men and women in each education category. 
+```{r}
+gender_edu <- covar |>
+  count(education, sex) |>
+  pivot_wider(names_from = sex, values_from = n, values_fill = 0) |>
+  rename(Male = `1`, Female = `2`) 
+
+knitr::kable(gender_edu, caption = "Number of Men and Women in Each Education Category")
+```
+This reade-friendly table the number of men and women in each education category. 
+
+There are 27 males and 28 females in "Less than high school" category.
+
+There are 35 males and 23 females in "High school equivalent" catgory.
+
+There are 56 males and 59 females in "More than high school" category. This category has the most people. 
+
+### Density plot of age distribution by sex in each education category:
+```{r}
+covar |>
+  select(sex, age, education) |>
+  ggplot(aes(x = age, fill = sex)) +
+  geom_density(alpha = 0.5, adjust = 0.4) + 
+  facet_wrap(~education) + 
+  labs(
+    title = "Age Distribution by Sex within Education Categories",
+    x = "Age",
+    y = "Density",
+    fill = "Sex"
+  ) + 
+  scale_fill_manual(values = c("lightblue", "yellow"), labels = c("Male","Female")) + 
+  theme_minimal() +
+  theme(legend.position = "bottom")     
+```
+Less than high school: The density curve for male in this category show peaks around age 45 and age 70, while female in this category show peaks around age 60 and age 80. There are large overlaps between male and female, which means male and female in this category have a similar age distribution.
+
+High school equivalent: The density curve for male shows a peak around age 25 and 55, while female shows a small peak around age 50 and a big peak around age 75. This plot less overlap, indicating there are more age differences between males and females in this category. Men with younger age around 20 are more likely to have a “High school equivalent” education than women, while elder women around age 75 are more likely to have this education than men.
+
+More than high school: The density curve for male shows a peak around age 25, while female shows a peak around age 30. The peak of the female curve is higher than male’s, showing that young women are more prominent in this category. Both curves decrease along with the increasing in age in general, indicating there are fewer elder people have “more than high school” education.
+
+
+### Using tidied dataset, aggregate across minutes to create a total activity variable for each participant: 
+```{r}
+total_act <- merge_df |>
+  filter(!is.na(sex)) |>  
+  group_by(seqn) |>
+  summarize(total_act = sum(mims, na.rm = TRUE)) |>
+  left_join(covar, by = "seqn")|>
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")) 
+  )
+
+ggplot(total_act, aes(x = age, y = total_act, color = sex)) + 
+  geom_point(alpha = 0.5) + 
+  geom_smooth(method = "loess", se = FALSE) + 
+  facet_wrap(~education) + 
+  labs(
+    title = "Total Activity vs Age by Sex and Education", 
+    x = "Age", 
+    y = "Total Activity", 
+    color = "Sex"
+  ) +
+  theme_minimal() 
+```
+
+This scatter plot with smoothing line shows total activities (y-axis) against age (x-axis) for males and females by each education level. 
+
+Less than high school: Female shows a higher total activity before 40 but then lower than male after age 40. Male’s total activity shows a peak around age 60. Both men and women have a sharp decrease after age 60.
+
+High school equivalent: Both male and female have a peak around age 40 but then decreased sharply from age 40 through 60. Overall, female have higher total activity.
+
+More than high school: Both male and female have a more gently decreased line, indicating a slower decline in total activity as age increases. Overall, female have higher total activity.
+
+In general, people with higher education has a more stable activity level through lifetime.
+
+
+### Three-panel plot that shows the 24-hour activity time courses for each education level and use color to indicate sex.
+```{r}
+hour_act <- merge_df |>
+  mutate(hour = (minute %/% 60) + 1) |>
+  group_by(seqn, hour, sex, education) |>
+  summarize(hour_act = sum(mims, na.rm = TRUE), .groups = "drop")|>
+  mutate(
+    sex = factor(sex, levels = c(1, 2), labels = c("Male", "Female")) 
+  )
+
+ggplot(hour_act, aes(x = hour, y = hour_act, color = sex)) + 
+  geom_line(alpha = 0.5) + 
+  geom_smooth(se = FALSE) +  
+  facet_wrap(~education) +  
+  labs(title = "24-Hour Activity Time Course by Education and Sex", 
+       x = "Hour of Day", y = "Total Activity", color = "Sex") +
+  theme_minimal()
+```
+Less than high school: Male and female in this panel have similar trends in activity levels in a day. Both show a peak of activity around 12PM and a sharp decrease after 8PM.
+
+High school equivalent: Male and female in this panel have similar trends in activity levels in a day. In this panel, people have a slightly lower activity level compared to “less than high school” or “more than high school” education. Male in this group have a slightly lower activity level than female.
+
+More than high school: Overall, female in this panel have a higher activity level than male, especially during 10AM to 8PM.
+
+In general, Men and women in all education panels shows similar activity patterns. The activity levels is high in the daytime and then sharply decreases from 8PM to midnight.
+
+## Problem 3
+### Import, clean, and tidy these data, and describe the resulting dataset.
+```{r}
+jan20 = read_csv("Jan 2020 Citi.csv") |> 
+  mutate(month = "january",  year = 2020)
+jan24 = read_csv("Jan 2024 Citi.csv") |> 
+  mutate(month = "january", year = 2024)
+july20 = read_csv("July 2020 Citi.csv") |> 
+  mutate(month = "july", year = 2020)
+july24 = read_csv("July 2024 Citi.csv") |> 
+  mutate(month = "july", year = 2024)
+```
+
+### A reader-friendly table showing the total number of rides in each combination of year and month separating casual riders and Citi Bike members.
+```{r}
+all_df <- bind_rows(jan20, july20, jan24, july24) |>
+  pivot_longer(
+    cols = start_station_name:end_station_name,
+    names_to = "start_end",
+    values_to = "station_name"
+  ) |>
+  mutate(
+    start_end = case_when(
+      start_end == "start_station_name" ~ "start",
+      start_end == "end_station_name" ~ "end"
+    )
+  ) |>
+  select(ride_id, rideable_type, weekdays, duration, member_casual, start_end, station_name, month, year)
+```
+
+```{r}
+ride_summary <- all_df |>
+  group_by(year, month, member_casual) |> 
+  summarise(total_rides = n_distinct(ride_id), .groups = "drop")
+
+wide_ride_summary <- ride_summary |> 
+  pivot_wider(
+    names_from = member_casual, 
+    values_from = total_rides, 
+    values_fill = list(total_rides = 0)
+  )
+
+wide_ride_summary |> 
+  knitr::kable(caption = "Total Rides by Year, Month, and Rider Type")
+```
+Rides increased significantly from 2020 to 2024 for both casual riders and members. For example, member rides in July 2020 were 15,411, rising to 36,262 in July 2024. \
+
+Members consistently took more rides than casual riders. In January 2024, members took 16,753 rides compared to 2,108 casual rides. \
+
+There are more rides in July than in January, reflecting higher usage in summer months. In 2020, casual rides in July (5,637) were much higher than January (984).\
+
+The significant rise in member rides suggests the Citi Bike membership program has expanded and attracted more regular users. \
+
+### A table showing the 5 most popular starting stations for July 2024; include the number of rides originating from these stations
+```{r}
+popular_stations <- all_df |> 
+  filter(month == "july", year == 2024, start_end == "start") |> 
+  count(station_name, name = "number_rides") |>  # Use count() to count rides per station
+  arrange(desc(number_rides)) |> 
+  slice_head(n = 5)  
+
+popular_stations |> 
+  knitr::kable(caption = "Top 5 Starting Stations in July 2024")
+```
+
+### Table of Median Ride Duration by Weekdays, Month, and Year
+```{r}
+all_df |> 
+  group_by(weekdays, month, year) |> 
+  ggplot(aes(x = weekdays, y = duration, fill = weekdays)) +
+  geom_boxplot(alpha = 0.7) +  # Use boxplot for comparison
+  facet_grid(year ~ month) +
+  labs(
+    title = "Ride Duration Distribution by Weekdays, Month, and Year",
+    x = "Weekdays",
+    y = "Ride Duration",
+    fill = "Weekdays"
+  ) +
+  viridis::scale_fill_viridis(discrete = TRUE) + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+
+```
+Ride durations are similar across all weekdays, with no significant differences between days. \
+There is a clear seasonal effect, as rides in July are longer than in January, likely due to better weather conditions during summer months. \
+The ride duration patterns remain stable between 2020 and 2024, though July 2024 shows an increase in longer-duration rides compared to July 2020. \
+In summary, season has a stronger influence on ride duration than the specific day of the week, with longer rides observed during the summer.
+
+```{r}
+# Calculate median and quartiles
+summary_df <- all_df |> 
+  filter(year == 2024) |> 
+  group_by(month, member_casual, rideable_type) |> 
+  summarize(
+    median_duration = median(duration, na.rm = TRUE),
+    q1_duration = quantile(duration, 0.25, na.rm = TRUE),
+    q3_duration = quantile(duration, 0.75, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Bar plot with error barse
+ggplot(summary_df, aes(x = member_casual, y = median_duration, fill = rideable_type)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.7) + geom_errorbar(aes(ymin = q1_duration, ymax = q3_duration), 
+                position = position_dodge(width = 0.7), width = 0.2) +  
+  facet_grid(~ month) +
+  labs(
+    title = "Median Ride Duration by Month, Membership Status, and Bike Type (2024)",
+    x = "Membership Status",
+    y = "Median Ride Duration",
+    fill = "Bike Type"
+  ) +
+  viridis::scale_fill_viridis(discrete = TRUE) + 
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+Casual riders tend to have longer ride durations compared to members, especially in both January and July. \
+Classic bikes have higher median ride durations compared to electric bikes, particularly for casual riders. \
+July has a slight reduction in ride duration variability compared to January, especially among casual riders. \
+In summary, casual riders generally take longer trips, and classic bikes are associated with longer rides, particularly in winter months.
+
+
+
+
+
+
+
